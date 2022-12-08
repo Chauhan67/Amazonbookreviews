@@ -1,0 +1,436 @@
+scp book.zip nchauha5@144.24.14.145:/tmp
+
+scp amazonbooks.zip nchauha5@144.24.14.145:/tmp
+
+cd /tmp
+
+wget https://github.com/Chauhan67/Amazonbookreviews/releases/download/v1/amazonbooks.zip
+
+unzip amazonbooks.zip -d /tmp/books
+
+
+hdfs dfs -mkdir books_data  
+hdfs dfs -mkdir Books_rating 
+
+cd /books 
+
+ls
+
+
+hdfs dfs -put books_data.csv books_data 
+
+hdfs dfs -put Books_rating.csv Books_rating
+
+
+cd 
+
+wget -O dictionary.tsv https://github.com/dalgual/aidatasci/raw/master/data/bigdata/dictionary.tsv 
+
+hdfs dfs -mkdir dictionary
+
+hdfs dfs -put dictionary.tsv dictionary
+
+hdfs dfs -ls
+
+hdfs dfs -ls Books_rating
+
+hdfs dfs -ls books_data
+
+hdfs dfs -cat books_data/books_data.csv | head -n 10
+
+
+hdfs dfs -cat books_data/books_data.csv | tail -n 10
+
+
+hdfs dfs -cat Books_rating/Books_rating.csv | head -n 10
+
+
+hdfs dfs -cat Books_rating/Books_rating.csv | tail -n 10
+
+
+hdfs fsck books_data/books_data.csv
+
+hdfs fsck Books_rating/Books_rating.csv
+
+
+
+CREATE EXTERNAL TABLE IF NOT EXISTS books_data (title STRING, 
+ description STRING, 
+ authors STRING,
+ image STRING, 
+ preview STRING, 
+ publisher STRING, 
+ publish_date BIGINT,
+ info_link STRING,
+ categories STRING,
+ ratings_count float) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
+STORED AS TEXTFILE LOCATION '/user/nchauha5/books_data'
+TBLPROPERTIES ('skip.header.line.count'='1');
+
+select * from books_data limit 3;
+
+select count(*) from books_data;
+
+
+CREATE EXTERNAL TABLE IF NOT EXISTS Books_rating (id BIGINT,
+ title STRING, 
+ price FLOAT, 
+ user_id STRING,
+ profile_name STRING,
+ r_helpfulness STRING, 
+ r_score INT,
+ r_time BIGINT,
+ r_summary STRING,
+ r_review STRING) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
+STORED AS TEXTFILE LOCATION '/user/nchauha5/Books_rating'
+TBLPROPERTIES ('skip.header.line.count'='1');
+
+select * from Books_rating limit 3;
+
+select count(*) from Books_rating;
+
+
+
+CREATE EXTERNAL TABLE if not exists dictionary ( 
+ type string, 
+ length int, 
+ word string, 
+ pos string, 
+ stemmed string, 
+ polarity string ) 
+ROW FORMAT DELIMITED 
+FIELDS TERMINATED BY '\t' 
+STORED AS TEXTFILE 
+LOCATION '/user/nchauha5/dictionary';
+
+select * from dictionary LIMIT 3; 
+
+
+----------------
+#to check distinct no of titles in both the tables which is 210154 in both
+
+select count( distinct title) from books_rating;
+
+select count( distinct title) from books_data;
+
+-----------
+#
+
+select * from books_rating order by title limit 10;
+------------
+# creating a view with the required review details and casting unix time to date and left outer joining the data table to have full one consolidated table for analysis
+
+
+CREATE VIEW IF NOT EXISTS b_reviews AS 
+SELECT 
+ r.title, 
+ d.authors,
+ d.categories,
+ r.price,
+ d.publish_date,
+ r.r_helpfulness, 
+ r.r_score, 
+ d.ratings_count,
+ cast(from_unixtime(r_time) as timestamp) r_date,
+ r.r_summary,
+ r.r_review
+ FROM books_rating r LEFT OUTER JOIN 
+ books_data d ON r.title = d.title;
+
+
+
+---------
+# ctrating a vire for review table to find top 10 most reviewed books and their avg score and 
+
+CREATE VIEW IF NOT EXISTS top10books AS 
+select title, avg(r_score) as avg_score, count(*) as count from books_rating group by title;
+
+# top 10 books review by count
+select * from top10books sort by count DESC limit 10;
+
+
+
+#downloading it for visualization
+INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY','
+select * from top10books sort by count DESC limit 10;
+
+# getting most reviewed book details from books_data
+select * from books_data where title = 'The Hobbit';
+
+# least 10 avg reviewed books where review count>=500
+select * from top10books where avg_score IS NOT NULL AND count >=500 sort by avg_score limit 10;
+
+#downloading it for visualization
+INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY','
+select * from top10books where avg_score IS NOT NULL AND count >=500 sort by avg_score limit 10;
+
+#getting least score title detail from books_data
+select * from books_data where title = 'Red Rabbit';
+
+-----------
+# analysing most reviewed book i.e the hobbit  using ngrams
+
+# using context 3-grams
+SELECT EXPLODE(context_ngrams(sentences(LOWER(r_review)),
+array(null, null, null), 10)) AS bigram FROM books_rating WHERE title = 'The Hobbit'; 
+
+# fining the nest contexts
+SELECT EXPLODE(context_ngrams(sentences(LOWER(r_review)),
+array("this", "book", "is", null,), 10)) AS bigram FROM books_rating WHERE title = 'The Hobbit'; 
+
+#for summary
+SELECT EXPLODE(NGRAMS(SENTENCES(LOWER(r_summary)), 2, 5)) 
+AS bigrams 
+FROM books_rating 
+WHERE title = 'The Hobbit';
+
+SELECT r_summary 
+FROM books_rating
+WHERE title = 'The Hobbit'
+AND r_summary LIKE '%great book%' LIMIT 5;
+
+# the bad reviews of hobbit
+select title, r_summary, r_score from books_rating where title ='The Hobbit' AND r_score <2 sort by r_score DESC limit 10;
+
+# no of <2 stars review for the hobbit 
+select title, count(*) as count from books_rating where title ='The Hobbit' AND r_score <=2 group by title;
+
+------------
+# for least rated book i.e 'Red Rabbit'
+
+
+
+#finding 2-gram here but for summary
+SELECT EXPLODE(NGRAMS(SENTENCES(LOWER(r_summary)), 2, 5)) 
+AS bigrams 
+FROM books_rating 
+WHERE title = 'Red Rabbit';
+
+#selecting both summary and reviews where 'the worst' is used to gain more insights
+SELECT r_summary, r_review 
+FROM books_rating
+WHERE title = 'Red Rabbit'
+AND r_summary LIKE '%the worst%' LIMIT 3;
+ 
+#seeing number of books by Jack Ryan
+select title,cout(authors) from books_data where authors LIKE '%Jack Ryan%';
+
+# searching for bear and dragon book but it's not present
+select * from books_data where title = 'Bear and the Dragon';
+
+-----------------------
+#searching top10 categories using RLIKE and count 
+
+select title, categories, count(categories) as count from books_data where categories RLIKE '(?<=\').+?(?=\')' group by categories sort by count DESC limit 10;
+
+
+
+#downloading for visualization
+INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY','
+select categories, count(categories) as count from books_data where categories RLIKE '(?<=\').+?(?=\')' group by categories sort by count DESC limit 10;
+
+------------------------------
+
+#sentiment analysys using dictionary for reviews
+
+create view IF NOT EXISTS l1 as 
+ select id, user_id, words
+ from books_rating 
+ lateral view explode(sentences(lower(r_review))) dummy as words;
+
+
+create view IF NOT EXISTS l2 as 
+ select id, user_id, word
+ from l1 
+ lateral view explode(words) dummy as word; 
+
+
+create view IF NOT EXISTS l3 as select 
+ id,
+ user_id, 
+ l2.word, 
+ case d.polarity 
+ when 'negative' then -1 
+ when 'positive' then 1 
+ else 0 end as polarity 
+ from l2 left outer join dictionary d on l2.word = d.word;
+
+select * from l3 limit 3;
+
+create external table IF NOT EXISTS review_sentiment(id bigint,user_id bigint, r_sentiment int) stored as orc;
+
+
+INSERT OVERWRITE TABLE review_sentiment select 
+ id,user_id, 
+ case 
+ when sum( polarity ) > 0 then '2' 
+ when sum( polarity ) < 0 then '0' 
+ else '1' end as sentiment 
+from l3 group by id,user_id;
+
+select * from review_sentiment limit 3;
+
+
+---------------------
+#sentiment analysys using dictionary for summary
+
+create view IF NOT EXISTS t1 as 
+ select id, user_id, words
+ from books_rating 
+ lateral view explode(sentences(lower(r_summary))) dummy as words;
+
+
+create view IF NOT EXISTS t2 as 
+ select id, user_id, word
+ from t1 
+ lateral view explode(words) dummy as word; 
+
+
+create view IF NOT EXISTS t3 as select 
+ id,
+ user_id, 
+ t2.word, 
+ case d.polarity 
+ when 'negative' then -1 
+ when 'positive' then 1 
+ else 0 end as polarity 
+ from t2 left outer join dictionary d on t2.word = d.word;
+
+
+create external table IF NOT EXISTS summary_sentiment(id bigint, user_id bigint, s_sentiment int) stored as orc;
+
+
+INSERT OVERWRITE TABLE summary_sentiment select 
+ id, user_id, 
+ case 
+ when sum( polarity ) > 0 then '2' 
+ when sum( polarity ) < 0 then '0' 
+ else '1' end as sentiment 
+from t3 group by id, user_id;
+
+select * from summary sentiment limit 3;
+
+
+###### Final sentiment table with joining both review and summary on ID
+create view IF NOT EXISTS rs_sentiments as select
+r.id, r.user_id, r.r_sentiment, s.s_sentiment from review_sentiment r left outer join summary_sentiment s on r.id = s.id and r.user_id = s.user_id;
+
+select * from rs_sentiments limit 3;
+
+
+
+######### joining sentiments into books_rating table 
+create external table IF NOT EXISTS books_senti(id bigint, title string, r_date timestamp, r_score float, r_sentiment int, s_sentiment int) stored as orc;
+
+
+INSERT OVERWRITE TABLE books_senti select 
+ s.id, 
+ r.title,
+ cast(from_unixtime(r_time) as timestamp) r_date,
+ r.r_score,
+ s.r_sentiment,
+ s.s_sentiment
+FROM r.books_rating r LEFT OUTER JOIN rs_sentiments s on r.id = s.id;
+ 
+from t3 group by user_id;
+
+
+
+
+#making books_review table by cleaning a bit of data as well
+
+CREATE EXTERNAL TABLE IF NOT EXISTS books_review ( id bigint, title string, r_rate timestamp, r_score float, r_sentiment int, s_sentiment int)
+ROW FORMAT DELIMITED
+FIELDS TERMINATED BY ","
+STORED AS TEXTFILE
+LOCATION "/user/nchauha5/tmp/";
+
+
+INSERT OVERWRITE TABLE books_review
+select id, 
+REGEXP_REPLACE(title, '[^a-zA-Z0-9]+', ' ') title,
+r_date, r_score,
+r_sentiment, s_sentiment from books_senti
+where id IS NOT NULL
+AND ( r_sentiment =0 or r_sentiment =1 or r_sentiment =2)
+AND ( s_sentiment =0 or s_sentiment =1 or s_sentiment =2);
+
+create view title_count as
+select title, count(title) from books_review group by title;
+
+INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY','
+select * from title_count;
+
+
+-----------------------
+
+scp nchauha5@144.24.14.145:/home/nchauha5/top10reviewed.csv .
+
+
+hdfs dfs -get tmp/000000_0 top10reviewed.csv
+
+
+
+scp nchauha5@144.24.14.145:/home/nchauha5/leastreviewed.csv .
+
+
+hdfs dfs -get tmp/000000_0 leastreviewed.csv
+
+
+
+
+scp nchauha5@144.24.14.145:/home/nchauha5/top10categories.csv .
+
+
+hdfs dfs -get tmp/000000_0 top10categories.csv
+
+
+
+scp nchauha5@144.24.14.145:/home/nchauha5/books_review.csv .
+
+
+hdfs dfs -get tmp/000000_0 books_review.csv
+
+
+
+scp nchauha5@144.24.14.145:/home/nchauha5/title_count.csv .
+
+
+hdfs dfs -get tmp/000000_0 title_count.csv
+
+
+-------------
+
+INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+ROW FORMAT DELIMITED FIELDS TERMINATED BY','
+
+
+
+
+
+
+
+
+
+
+
+---------------
+select title, avg(r_score) as avg_score, count(*) as count from books_rating group by title sort by count DESC limit 10;
+
+select title, avg(r_score) as avg_score, count(*) as count from books_rating where avg_score IS NOT NULL group by title sort by avg_score limit 10;
+
+
+select title, avg(r_score) as avg_score, count(*) as count from books_rating where avg_score IS NOT NULL AND count >=100 group by title sort by avg_score limit 10;
+
+--------
+
+*** cast(from_unixtime(r_time) - this is to cast r_time in unix to date from books_review table
+
+
+select cast(from_unixtime(r_time) as date from books_ratings limit 5;

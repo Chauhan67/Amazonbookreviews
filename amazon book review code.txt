@@ -1,13 +1,15 @@
-scp book.zip nchauha5@144.24.14.145:/tmp
+# code to upload into linux from local PC
 
-scp amazonbooks.zip nchauha5@144.24.14.145:/tmp
+scp amazonbooks.zip ychauha4@144.24.14.145:/tmp
+
+----------------------------
+#code to load data from github
 
 cd /tmp
 
 wget https://github.com/Chauhan67/Amazonbookreviews/releases/download/v1/amazonbooks.zip
 
 unzip amazonbooks.zip -d /tmp/books
-
 
 hdfs dfs -mkdir books_data  
 hdfs dfs -mkdir Books_rating 
@@ -47,12 +49,16 @@ hdfs dfs -cat Books_rating/Books_rating.csv | head -n 10
 
 hdfs dfs -cat Books_rating/Books_rating.csv | tail -n 10
 
+-------------------
+#checking file heatlth
 
 hdfs fsck books_data/books_data.csv
 
 hdfs fsck Books_rating/Books_rating.csv
 
+---------------------------
 
+#creating tables with books_data
 
 CREATE EXTERNAL TABLE IF NOT EXISTS books_data (title STRING, 
  description STRING, 
@@ -65,7 +71,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS books_data (title STRING,
  categories STRING,
  ratings_count float) 
 ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
-STORED AS TEXTFILE LOCATION '/user/nchauha5/books_data'
+STORED AS TEXTFILE LOCATION '/user/ychauha4/books_data'
 TBLPROPERTIES ('skip.header.line.count'='1');
 
 select * from books_data limit 3;
@@ -84,7 +90,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS Books_rating (id BIGINT,
  r_summary STRING,
  r_review STRING) 
 ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' 
-STORED AS TEXTFILE LOCATION '/user/nchauha5/Books_rating'
+STORED AS TEXTFILE LOCATION '/user/ychauha4/Books_rating'
 TBLPROPERTIES ('skip.header.line.count'='1');
 
 select * from Books_rating limit 3;
@@ -103,46 +109,21 @@ CREATE EXTERNAL TABLE if not exists dictionary (
 ROW FORMAT DELIMITED 
 FIELDS TERMINATED BY '\t' 
 STORED AS TEXTFILE 
-LOCATION '/user/nchauha5/dictionary';
+LOCATION '/user/ychauha4/dictionary';
 
 select * from dictionary LIMIT 3; 
 
+-------------------------------------
 
-----------------
 #to check distinct no of titles in both the tables which is 210154 in both
 
 select count( distinct title) from books_rating;
 
 select count( distinct title) from books_data;
 
------------
-#
+----------------------------------
 
-select * from books_rating order by title limit 10;
-------------
-# creating a view with the required review details and casting unix time to date and left outer joining the data table to have full one consolidated table for analysis
-
-
-CREATE VIEW IF NOT EXISTS b_reviews AS 
-SELECT 
- r.title, 
- d.authors,
- d.categories,
- r.price,
- d.publish_date,
- r.r_helpfulness, 
- r.r_score, 
- d.ratings_count,
- cast(from_unixtime(r_time) as timestamp) r_date,
- r.r_summary,
- r.r_review
- FROM books_rating r LEFT OUTER JOIN 
- books_data d ON r.title = d.title;
-
-
-
----------
-# ctrating a vire for review table to find top 10 most reviewed books and their avg score and 
+# ctrating a view for review table to find top 10 most reviewed books and their avg score and 
 
 CREATE VIEW IF NOT EXISTS top10books AS 
 select title, avg(r_score) as avg_score, count(*) as count from books_rating group by title;
@@ -153,22 +134,22 @@ select * from top10books sort by count DESC limit 10;
 
 
 #downloading it for visualization
-INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+INSERT OVERWRITE DIRECTORY '/user/ychauha4/tmp/'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY','
 select * from top10books sort by count DESC limit 10;
 
-# getting most reviewed book details from books_data
+# getting most reviewed book details from books_data to gain more info
 select * from books_data where title = 'The Hobbit';
 
 # least 10 avg reviewed books where review count>=500
 select * from top10books where avg_score IS NOT NULL AND count >=500 sort by avg_score limit 10;
 
 #downloading it for visualization
-INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+INSERT OVERWRITE DIRECTORY '/user/ychauha4/tmp/'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY','
 select * from top10books where avg_score IS NOT NULL AND count >=500 sort by avg_score limit 10;
 
-#getting least score title detail from books_data
+#getting least score title detail from books_data to gain more info
 select * from books_data where title = 'Red Rabbit';
 
 -----------
@@ -176,11 +157,11 @@ select * from books_data where title = 'Red Rabbit';
 
 # using context 3-grams
 SELECT EXPLODE(context_ngrams(sentences(LOWER(r_review)),
-array(null, null, null), 10)) AS bigram FROM books_rating WHERE title = 'The Hobbit'; 
+array(null, null, null), 10)) AS trigram FROM books_rating WHERE title = 'The Hobbit'; 
 
 # fining the nest contexts
 SELECT EXPLODE(context_ngrams(sentences(LOWER(r_review)),
-array("this", "book", "is", null,), 10)) AS bigram FROM books_rating WHERE title = 'The Hobbit'; 
+array("this", "book", "is", null,), 10)) AS trigram FROM books_rating WHERE title = 'The Hobbit'; 
 
 #for summary
 SELECT EXPLODE(NGRAMS(SENTENCES(LOWER(r_summary)), 2, 5)) 
@@ -203,7 +184,6 @@ select title, count(*) as count from books_rating where title ='The Hobbit' AND 
 # for least rated book i.e 'Red Rabbit'
 
 
-
 #finding 2-gram here but for summary
 SELECT EXPLODE(NGRAMS(SENTENCES(LOWER(r_summary)), 2, 5)) 
 AS bigrams 
@@ -219,7 +199,7 @@ AND r_summary LIKE '%the worst%' LIMIT 3;
 #seeing number of books by Jack Ryan
 select title,cout(authors) from books_data where authors LIKE '%Jack Ryan%';
 
-# searching for bear and dragon book but it's not present
+# searching for bear and dragon book for futher analysis but it's not present 
 select * from books_data where title = 'Bear and the Dragon';
 
 -----------------------
@@ -230,9 +210,10 @@ select title, categories, count(categories) as count from books_data where categ
 
 
 #downloading for visualization
-INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+INSERT OVERWRITE DIRECTORY '/user/ychauha4/tmp/'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY','
 select categories, count(categories) as count from books_data where categories RLIKE '(?<=\').+?(?=\')' group by categories sort by count DESC limit 10;
+
 
 ------------------------------
 
@@ -348,7 +329,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS books_review ( id bigint, title string, r_ra
 ROW FORMAT DELIMITED
 FIELDS TERMINATED BY ","
 STORED AS TEXTFILE
-LOCATION "/user/nchauha5/tmp/";
+LOCATION "/user/ychauha4/tmp/";
 
 
 INSERT OVERWRITE TABLE books_review
@@ -363,21 +344,21 @@ AND ( s_sentiment =0 or s_sentiment =1 or s_sentiment =2);
 create view title_count as
 select title, count(title) from books_review group by title;
 
-INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+INSERT OVERWRITE DIRECTORY '/user/ychauha4/tmp/'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY','
 select * from title_count;
 
 
 -----------------------
 
-scp nchauha5@144.24.14.145:/home/nchauha5/top10reviewed.csv .
+scp ychauha4@144.24.14.145:/home/ychauha4/top10reviewed.csv .
 
 
 hdfs dfs -get tmp/000000_0 top10reviewed.csv
 
 
 
-scp nchauha5@144.24.14.145:/home/nchauha5/leastreviewed.csv .
+scp ychauha4@144.24.14.145:/home/ychauha4/leastreviewed.csv .
 
 
 hdfs dfs -get tmp/000000_0 leastreviewed.csv
@@ -385,21 +366,21 @@ hdfs dfs -get tmp/000000_0 leastreviewed.csv
 
 
 
-scp nchauha5@144.24.14.145:/home/nchauha5/top10categories.csv .
+scp ychauha4@144.24.14.145:/home/ychauha4/top10categories.csv .
 
 
 hdfs dfs -get tmp/000000_0 top10categories.csv
 
 
 
-scp nchauha5@144.24.14.145:/home/nchauha5/books_review.csv .
+scp ychauha4@144.24.14.145:/home/ychauha4/books_review.csv .
 
 
 hdfs dfs -get tmp/000000_0 books_review.csv
 
 
 
-scp nchauha5@144.24.14.145:/home/nchauha5/title_count.csv .
+scp ychauha4@144.24.14.145:/home/ychauha4/title_count.csv .
 
 
 hdfs dfs -get tmp/000000_0 title_count.csv
@@ -407,7 +388,7 @@ hdfs dfs -get tmp/000000_0 title_count.csv
 
 -------------
 
-INSERT OVERWRITE DIRECTORY '/user/nchauha5/tmp/'
+INSERT OVERWRITE DIRECTORY '/user/ychauha4/tmp/'
 ROW FORMAT DELIMITED FIELDS TERMINATED BY','
 
 
